@@ -6,7 +6,12 @@ use swash::{
         Render, ScaleContext, Source, StrikeWith,
     },
     zeno::{Angle, Format, Transform, Vector},
-    CacheKey,
+};
+
+use crate::{
+    color::Color,
+    font_system::FontSystem,
+    glyph_cache::{CacheKey, CacheKeyFlags},
 };
 
 /// Cache for rasterizing with the swash scaler.
@@ -19,6 +24,7 @@ pub struct SwashCache {
 
 impl SwashCache {
     /// Create a new swash cache.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             context: ScaleContext::new(),
@@ -27,16 +33,24 @@ impl SwashCache {
         }
     }
 
-    /// Create a swash `Image`` from a cache key, without caching the results.
-    pub fn get_image_uncached(&mut self, font_system: &mut FontSystem, cache_key: CacheKey) -> Option<Image> {
+    /// Create a swash `Image` from a cache key, without caching the results.
+    pub fn get_image_uncached(
+        &mut self,
+        font_system: &mut FontSystem,
+        cache_key: CacheKey,
+    ) -> Option<Image> {
         swash_image_from_cache_key(font_system, &mut self.context, cache_key)
     }
 
-    /// Create a swash Image from a cache key, caching results
-    pub fn get_image(&mut self, font_system: &mut FontSystem, cache_key: CacheKey) -> &Option<Image> {
-        self.image_cache
-            .entry(cache_key)
-            .or_insert_with(|| swash_image_from_cache_key(font_system, &mut self.context, cache_key))
+    /// Create a swash `Image` from a cache key, caching results
+    pub fn get_image(
+        &mut self,
+        font_system: &mut FontSystem,
+        cache_key: CacheKey,
+    ) -> &Option<Image> {
+        self.image_cache.entry(cache_key).or_insert_with(|| {
+            swash_image_from_cache_key(font_system, &mut self.context, cache_key)
+        })
     }
 
     pub fn get_outline_commands(
@@ -46,7 +60,9 @@ impl SwashCache {
     ) -> Option<&[swash::zeno::Command]> {
         self.outline_command_cache
             .entry(cache_key)
-            .or_insert_with(|| swash_outline_commands_from_cache_key(font_system, &mut self.context, cache_key))
+            .or_insert_with(|| {
+                swash_outline_commands_from_cache_key(font_system, &mut self.context, cache_key)
+            })
             .as_deref()
     }
 
@@ -67,11 +83,13 @@ impl SwashCache {
                     let mut index = 0;
                     for offset_y in 0..image.placement.height as i32 {
                         for offset_x in 0..image.placement.width as i32 {
-                            // TODO: Blend base alpha?
+                            // TODO(ghovax): Blend base alpha?
                             drawing_function(
                                 x + offset_x,
                                 y + offset_y,
-                                Color(((image.data[index] as u32) << 24) | base_color.0 & 0xFF_FF_FF),
+                                Color(
+                                    ((image.data[index] as u32) << 24) | base_color.0 & 0xFF_FF_FF,
+                                ),
                             );
                             index += 1;
                         }
@@ -81,11 +99,16 @@ impl SwashCache {
                     let mut index = 0;
                     for offset_y in 0..image.placement.height as i32 {
                         for offset_x in 0..image.placement.width as i32 {
-                            // TODO: Blend base alpha?
+                            // TODO(ghovax): Blend base alpha?
                             drawing_function(
                                 x + offset_x,
                                 y + offset_y,
-                                Color::rgba(image.data[index], image.data[index + 1], image.data[index + 2], image.data[index + 3]),
+                                Color::rgba(
+                                    image.data[index],
+                                    image.data[index + 1],
+                                    image.data[index + 2],
+                                    image.data[index + 3],
+                                ),
                             );
                             index += 4;
                         }
@@ -107,14 +130,17 @@ fn swash_image_from_cache_key(
     let font = match font_system.get_font(cache_key.font_id) {
         Some(some) => some,
         None => {
-            log::warn!("Unable to find the font with the ID {:?}", cache_key.font_id);
+            log::warn!(
+                "Unable to find the font with the ID {:?}",
+                cache_key.font_id
+            );
             return None;
         }
     };
 
     // Build the scaler for the font
     let mut scaler = context
-        .builder(font.as_swash())
+        .builder(font.as_font_reference())
         .size(f32::from_bits(cache_key.font_size_bits))
         .hint(true)
         .build();
@@ -138,7 +164,10 @@ fn swash_image_from_cache_key(
     .offset(offset)
     // TODO(ghovax): I might want to add more features here.
     .transform(if cache_key.flags.contains(CacheKeyFlags::FAKE_ITALIC) {
-        Some(Transform::skew(Angle::from_degrees(14.0), Angle::from_degrees(0.0)))
+        Some(Transform::skew(
+            Angle::from_degrees(14.0),
+            Angle::from_degrees(0.0),
+        ))
     } else {
         None
     })
@@ -156,14 +185,17 @@ fn swash_outline_commands_from_cache_key(
     let font = match font_system.get_font(cache_key.font_id) {
         Some(some) => some,
         None => {
-            log::warn!("Unable to find the font with the ID {:?}", cache_key.font_id);
+            log::warn!(
+                "Unable to find the font with the ID {:?}",
+                cache_key.font_id
+            );
             return None;
         }
     };
 
     // Build the scaler
     let mut scaler = context
-        .builder(font.as_swash())
+        .builder(font.as_font_reference())
         .size(f32::from_bits(cache_key.font_size_bits))
         .build();
 

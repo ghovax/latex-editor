@@ -1,9 +1,14 @@
 use std::{num::NonZeroU32, rc::Rc};
 
-use cosmic_text::{Attrs, Buffer, Cursor, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap};
+use text::{
+    attributes::{Attributes, Style, Weight},
+    color::Color,
+    font_system::FontSystem,
+    line_buffer::LineBuffer,
+    swash_cache::SwashCache,
+};
 use tiny_skia::{Paint, PixmapMut, Transform};
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
-use unicode_segmentation::UnicodeSegmentation;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -22,7 +27,7 @@ enum UserEvent {
 enum DocumentElement {
     Line {
         anchor_point: PhysicalPosition<f32>,
-        spans: Vec<(String, Attrs<'static>)>,
+        spans: Vec<(String, Attributes)>,
     },
 }
 
@@ -34,7 +39,9 @@ fn main() {
         .init();
 
     // Create the window and graphics context to draw to
-    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build().unwrap();
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event()
+        .build()
+        .unwrap();
     let event_loop_proxy = event_loop.create_proxy();
     let window = Rc::new(WindowBuilder::new().build(&event_loop).unwrap());
     let context = softbuffer::Context::new(window.clone()).unwrap();
@@ -44,27 +51,40 @@ fn main() {
     let mut font_system = FontSystem::new();
     let mut swash_cache = SwashCache::new();
 
-    // NOTE(ghovax): These parameters could be configured.
     let mut display_scale = window.scale_factor() as f32;
-    let metrics = Metrics::new(32.0, 32.0);
+
+    // NOTE(ghovax): This parameter could be configured.
+    let font_size = 32.0 * display_scale;
+
+    let default_attributes = Attributes::new();
+    // NOTE(ghovax): There is definitely a better way to do this.
+    let italic_attributes = {
+        let mut attributes = Attributes::new();
+        attributes.style = Style::Italic;
+        attributes
+    };
+    let bold_attributes = {
+        let mut attributes = Attributes::new();
+        attributes.weight = Weight::BOLD;
+        attributes
+    };
 
     // NOTE(ghovax): This could be loaded from an actual document.
-    let attributes = Attrs::new().family(Family::Name("CMU Serif")).weight(Weight::MEDIUM);
-    let mut document = vec![
+    let document = vec![
         DocumentElement::Line {
             anchor_point: PhysicalPosition::new(85.0, 120.0),
             spans: vec![
-                ("B".to_string(), attributes),
-                ("old ".to_string(), attributes.style(Style::Italic)),
-                ("example text".to_string(), attributes.weight(Weight::BOLD)),
+                ("B".to_string(), default_attributes),
+                ("old ".to_string(), italic_attributes),
+                ("example text".to_string(), bold_attributes),
             ],
         },
         DocumentElement::Line {
             anchor_point: PhysicalPosition::new(35.0, 180.0),
             spans: vec![
-                ("B".to_string(), attributes),
-                ("old ".to_string(), attributes.style(Style::Italic)),
-                ("example text".to_string(), attributes.weight(Weight::BOLD)),
+                ("B".to_string(), default_attributes),
+                ("old ".to_string(), italic_attributes),
+                ("example text".to_string(), bold_attributes),
             ],
         },
     ];
@@ -75,28 +95,13 @@ fn main() {
     for document_element in document.iter() {
         match document_element {
             DocumentElement::Line { spans, .. } => {
-                let mut line_buffer = Buffer::new_empty(metrics.scale(display_scale));
-                line_buffer.set_size(
-                    &mut font_system,
-                    window.inner_size().width as f32,
-                    window.inner_size().height as f32,
-                );
-                line_buffer.set_rich_text(
-                    &mut font_system,
-                    spans.iter().map(|span| (span.0.as_str(), span.1)),
-                    attributes,
-                    Shaping::Advanced,
-                );
+                let line_buffer = LineBuffer::from_rich_text(spans, default_attributes);
                 line_buffers.push(line_buffer);
             }
         }
     }
 
-    // TODO(ghovax): Figure out how to position the cursor correctly at each line
-    let mut cursor = Cursor::default();
-    let mut cursor_line_index = 0;
-    let cursor_color = cosmic_text::Color::rgba(0, 0, 0, 255);
-
+    // TODO(ghovax): Figure out how to position the cursor at each line.
     let mut mouse_position = PhysicalPosition::new(0.0, 0.0);
     let mut mouse_left_button_state = ElementState::Released;
 
@@ -127,12 +132,11 @@ fn main() {
                         let mut surface_pixel_map = PixmapMut::from_bytes(surface_buffer_data, width, height).unwrap();
                         surface_pixel_map.fill(tiny_skia::Color::WHITE);
 
-                        // TODO: For each line buffer, should I set `line_buffer.set_size(&mut font_system, width as f32, height as f32)`?
 
                         let mut painting_options = Paint::default();
-                        let mut paint_rectangle = |x, y, width, height, color: cosmic_text::Color| {
-                            // NOTE: Due to `softbuffer`` and `tiny_skia` having incompatible internal color representations we swap
-                            // the red and blue channels here
+                        let mut paint_rectangle = |x, y, width, height, color: Color| {
+                            // NOTE(ghovax): Due to `softbuffer`` and `tiny_skia` having incompatible internal color
+                            // representations we swap the red and blue channels here
                             painting_options.set_color_rgba8(color.b(), color.g(), color.r(), color.a());
                             surface_pixel_map.fill_rect(
                                 tiny_skia::Rect::from_xywh(x as f32, y as f32, width as f32, height as f32).unwrap(),
@@ -144,136 +148,32 @@ fn main() {
 
                         for (line_buffer, document_element) in line_buffers.iter_mut().zip(document.iter()) {
                             let anchor_point = match document_element {
-                                DocumentElement::Line { anchor_point, .. } => anchor_point.clone(),
+                                DocumentElement::Line { anchor_point, .. } => *anchor_point,
                             };
-                            line_buffer.set_wrap(&mut font_system, Wrap::None);
-                            line_buffer.line_layout(&mut font_system, 0).unwrap();
+                            let layouted_line = line_buffer.as_layouted_line(&mut font_system, font_size);
 
-                            let line_height = line_buffer.metrics().line_height;
-                            for layout_run in line_buffer.layout_runs() {
-                                let cursor_glyph_position = |cursor: &Cursor| -> Option<(usize, f32)> {
-                                    let line_index = layout_run.line_i;
+                            for glyph in layouted_line.layouted_glyphs.iter() {
+                                let physical_glyph = glyph.layout_physically((anchor_point.x, anchor_point.y), 1.0);
 
-                                    if cursor.line == line_index {
-                                        for (glyph_index, glyph) in layout_run.glyphs.iter().enumerate() {
-                                            if cursor.index == glyph.start {
-                                                return Some((glyph_index, 0.0));
-                                            } else if cursor.index > glyph.start && cursor.index < glyph.end {
-                                                // Guess the horizontal offset based on the characters
-                                                let mut before = 0;
-                                                let mut total = 0;
-
-                                                let cluster = &layout_run.text[glyph.start..glyph.end];
-                                                for (i, _) in cluster.grapheme_indices(true) {
-                                                    if glyph.start + i < cursor.index {
-                                                        before += 1;
-                                                    }
-                                                    total += 1;
-                                                }
-
-                                                let offset = glyph.w * (before as f32) / (total as f32);
-                                                return Some((glyph_index, offset));
-                                            }
-                                        }
-                                        match layout_run.glyphs.last() {
-                                            Some(glyph) => {
-                                                if cursor.index == glyph.end {
-                                                    return Some((layout_run.glyphs.len(), 0.0));
-                                                }
-                                            }
-                                            None => {
-                                                return Some((0, 0.0));
-                                            }
-                                        }
-                                    }
-
-                                    None
+                                let glyph_color = match glyph.color {
+                                    Some(color) => color,
+                                    None => Color::rgba(0, 0, 0, 255),
                                 };
 
-                                // Draw the cursor
-                                if let Some((cursor_glyph_index, cursor_glyph_offset)) = cursor_glyph_position(&cursor)
-                                {
-                                    let x = match layout_run.glyphs.get(cursor_glyph_index) {
-                                        Some(glyph) => {
-                                            // Start of detected glyph
-                                            if glyph.level.is_rtl() {
-                                                (glyph.x + glyph.w - cursor_glyph_offset) as i32
-                                            } else {
-                                                (glyph.x + cursor_glyph_offset) as i32
-                                            }
-                                        }
-                                        None => match layout_run.glyphs.last() {
-                                            Some(glyph) => {
-                                                // End of last glyph
-                                                if glyph.level.is_rtl() {
-                                                    glyph.x as i32
-                                                } else {
-                                                    (glyph.x + glyph.w) as i32
-                                                }
-                                            }
-                                            None => {
-                                                // Start of empty line
-                                                0
-                                            }
-                                        },
-                                    };
-
-                                    let cursor_width = match layout_run.glyphs.get(cursor_glyph_index) {
-                                        Some(glyph) => {
-                                            // Start of detected glyph
-                                            if glyph.level.is_rtl() {
-                                                (glyph.w - cursor_glyph_offset) as i32
-                                            } else {
-                                                glyph.w as i32
-                                            }
-                                        }
-                                        None => match layout_run.glyphs.last() {
-                                            Some(glyph) => {
-                                                // End of last glyph
-                                                if glyph.level.is_rtl() {
-                                                    0
-                                                } else {
-                                                    glyph.w as i32
-                                                }
-                                            }
-                                            None => {
-                                                // Start of empty line
-                                                0
-                                            }
-                                        },
-                                    };
-                                    paint_rectangle(
-                                        x + anchor_point.x as i32,
-                                        (layout_run.line_top + anchor_point.y) as i32,
-                                        2,
-                                        line_height as u32,
-                                        cursor_color,
-                                    );
-                                }
-
-                                for glyph in layout_run.glyphs.iter() {
-                                    let physical_glyph = glyph.physical((anchor_point.x, anchor_point.y), 1.0);
-
-                                    let glyph_color = match glyph.color_opt {
-                                        Some(color) => color,
-                                        None => cosmic_text::Color::rgba(0, 0, 0, 255),
-                                    };
-
-                                    swash_cache.with_pixels(
-                                        &mut font_system,
-                                        physical_glyph.cache_key,
-                                        glyph_color,
-                                        |x, y, color| {
-                                            paint_rectangle(
-                                                physical_glyph.x + x,
-                                                layout_run.line_y as i32 + physical_glyph.y + y,
-                                                1,
-                                                1,
-                                                color,
-                                            );
-                                        },
-                                    );
-                                }
+                                swash_cache.with_pixels(
+                                    &mut font_system,
+                                    physical_glyph.cache_key,
+                                    glyph_color,
+                                    |x, y, color| {
+                                        paint_rectangle(
+                                            physical_glyph.x_offset + x,
+                                            physical_glyph.y_offset + y,
+                                            1,
+                                            1,
+                                            color,
+                                        );
+                                    },
+                                );
                             }
                         }
 
@@ -287,47 +187,7 @@ fn main() {
                             } else if ['\n', '\r'].contains(&character) {
                                 log::debug!("Received enter input, still have to implement the functionality");
                             } else {
-                                let cursor_line_buffer = line_buffers.get_mut(cursor_line_index).unwrap();
-                                let cursor_line_spans = match document.get_mut(cursor_line_index).unwrap() {
-                                    DocumentElement::Line { spans, .. } => spans,
-                                };
-
-                                // Find for which elements of the span the cursor index belongs to
-                                // For example, in the span `[("B", attributes), ("old ", attributes.style(Style::Italic))]`,
-                                // the cursor index 1 would belong to the span `[("old ", attributes.style(Style::Italic))]`, as would the indices 2, 3 and 4
-                                // and the cursor index 0 would belong to the span `[("B", attributes)]`.
-                                let mut cursor_span_index = None;
-                                let mut index_in_span = None;
-                                {
-                                    let mut total_characters_counter = 0;
-                                    'outer: for (span_index, span) in cursor_line_spans.iter().enumerate() {
-                                        for (character_index, _character) in span.0.chars().enumerate() {
-                                            if total_characters_counter == cursor.index {
-                                                cursor_span_index = Some(span_index);
-                                                index_in_span = Some(character_index);
-                                                break 'outer;
-                                            }
-                                            total_characters_counter += 1;
-                                        }
-                                    }
-                                }
-
-                                let cursor_span_index = cursor_span_index.unwrap_or(cursor_line_spans.len() - 1); // TODO
-                                let index_in_span =
-                                    index_in_span.unwrap_or(cursor_line_spans.get(cursor_span_index).unwrap().0.len());
-
-                                cursor_line_spans
-                                    .get_mut(cursor_span_index)
-                                    .unwrap()
-                                    .0
-                                    .insert(index_in_span, character);
-                                cursor_line_buffer.set_rich_text(
-                                    &mut font_system,
-                                    cursor_line_spans.iter().map(|span| (span.0.as_str(), span.1)),
-                                    attributes,
-                                    Shaping::Advanced,
-                                );
-                                cursor.index += 1;
+                                // TODO
                             }
                         }
                     }
@@ -365,7 +225,7 @@ fn main() {
 
                         display_scale = scale_factor as f32;
                         for line_buffer in line_buffers.iter_mut() {
-                            line_buffer.set_metrics(&mut font_system, metrics.scale(display_scale));
+                            // TODO(ghovax): I need to change the metrics of the font.
                         }
 
                         event_loop_proxy.send_event(UserEvent::RequestRedraw).unwrap();
@@ -389,18 +249,7 @@ fn main() {
                                     let anchor_point = match document_element {
                                         DocumentElement::Line { anchor_point, .. } => anchor_point,
                                     };
-                                    if let Some(updated_cursor) = line_buffer.hit(
-                                        mouse_position.x as f32 - anchor_point.x,
-                                        mouse_position.y as f32 - anchor_point.y,
-                                    ) {
-                                        if updated_cursor != cursor {
-                                            cursor = updated_cursor;
-                                            cursor_line_index = line_index;
-
-                                            event_loop_proxy.send_event(UserEvent::RequestRedraw).unwrap();
-                                            break;
-                                        }
-                                    }
+                                    // TODO(ghovax): Position the cursor.
                                 }
                             }
 
