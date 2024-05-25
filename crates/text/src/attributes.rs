@@ -46,6 +46,20 @@ impl Attributes {
             && self.style == other.style
             && self.weight == other.weight
     }
+
+    pub fn italic(&self) -> Self {
+        Self {
+            style: Style::Italic,
+            ..self.clone()
+        }
+    }
+
+    pub fn bold(&self) -> Self {
+        Self {
+            weight: Weight::BOLD,
+            ..self.clone()
+        }
+    }
 }
 
 /// List of text attributes to apply to a line.

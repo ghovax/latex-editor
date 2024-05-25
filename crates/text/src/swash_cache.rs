@@ -81,7 +81,7 @@ impl SwashCache {
             match image.content {
                 Content::Mask => {
                     let mut index = 0;
-                    
+
                     for offset_y in 0..image.placement.height as i32 {
                         for offset_x in 0..image.placement.width as i32 {
                             // TODO(ghovax): Blend base alpha?
