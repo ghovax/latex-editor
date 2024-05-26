@@ -1,3 +1,4 @@
+use gtk4::gio::{Cancellable, MemoryInputStream};
 use gtk4::DrawingArea;
 use gtk4::{cairo, glib, prelude::*, Button, GestureClick, Orientation, ScrolledWindow};
 use skia_safe::image::CachingHint;
@@ -165,15 +166,15 @@ fn main() -> glib::ExitCode {
         toolbar.set_height_request(default_toolbar_height);
 
         // Create toolbar buttons
-        for (button_icon_path, button_action) in [
+        for (button_icon_data, button_action) in [
             (
-                "add_40dp_FILL0_wght400_GRAD0_opsz40",
+                include_bytes!("add_40dp_FILL0_wght400_GRAD0_opsz40.png").to_vec(),
                 Box::new(|| {
                     log::trace!("Pressed the add button");
                 }) as Box<dyn Fn()>,
             ),
             (
-                "add_link_40dp_FILL0_wght400_GRAD0_opsz40",
+                include_bytes!("add_link_40dp_FILL0_wght400_GRAD0_opsz40.png").to_vec(),
                 Box::new(|| {
                     log::trace!("Pressed the add link button");
                 }) as Box<dyn Fn()>,
@@ -181,7 +182,9 @@ fn main() -> glib::ExitCode {
         ] {
             let button = Button::builder().build();
             let button_icon = gtk4::Image::new();
-            button_icon.set_from_file(Some(format!("src/{button_icon_path}.png").as_str()));
+            let mis = MemoryInputStream::from_bytes(&glib::Bytes::from_owned(button_icon_data));
+            let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_stream(&mis, None::<&Cancellable>).unwrap();
+            button_icon.set_from_pixbuf(Some(&pixbuf));
             button.set_child(Some(&button_icon));
             button.connect_clicked(move |_button| button_action());
             toolbar.append(&button);
