@@ -298,6 +298,7 @@ dependencies = [
  "regex",
  "rust-embed",
  "serde",
+ "serde_json",
  "skia-safe",
  "text",
  "tracing-subscriber",

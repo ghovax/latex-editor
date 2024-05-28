@@ -27,7 +27,7 @@ impl Attributes {
             family: Family::Serif,
             stretch: Stretch::Normal,
             style: Style::Normal,
-            weight: Weight::MEDIUM,
+            weight: Weight::BOLD,
             cache_key_flags: CacheKeyFlags::empty(),
         }
     }
@@ -35,8 +35,7 @@ impl Attributes {
     /// Check if these attributes match the ones of the font.
     pub fn matches(&self, face: &fontdb::FaceInfo) -> bool {
         // TODO(ghovax): Is there a smarter way of including emojis?
-        face.post_script_name.contains("Emoji")
-            || (face.style == self.style && face.stretch == self.stretch)
+        face.post_script_name.contains("Emoji") || (face.style == self.style && face.stretch == self.stretch)
     }
 
     /// Check if this set of attributes can be shaped with another.
@@ -56,7 +55,7 @@ impl Attributes {
 
     pub fn bold(&self) -> Self {
         Self {
-            weight: Weight::BOLD,
+            weight: Weight::MEDIUM,
             ..self.clone()
         }
     }
@@ -123,10 +122,9 @@ impl AttributesList {
                     .insert(0..selected_range.end - index, attributes);
                 self.spans.insert(selected_range.start..index, attributes);
             } else {
-                updated_attributes_list.spans.insert(
-                    selected_range.start - index..selected_range.end - index,
-                    attributes,
-                );
+                updated_attributes_list
+                    .spans
+                    .insert(selected_range.start - index..selected_range.end - index, attributes);
             }
         }
 

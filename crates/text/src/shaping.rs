@@ -110,8 +110,7 @@ impl ShapedWord {
 
         for (grapheme_cluster_index, _) in word.grapheme_indices(true) {
             let start_grapheme_cluster_index = word_range.start + grapheme_cluster_index;
-            let grapheme_cluster_attributes =
-                attributes_list.get_span(start_grapheme_cluster_index);
+            let grapheme_cluster_attributes = attributes_list.get_span(start_grapheme_cluster_index);
 
             if !default_attributes.is_compatible_with(&grapheme_cluster_attributes) {
                 shape_word(
@@ -182,11 +181,8 @@ fn shape_word(
     for font_match_key in font_match_keys.iter() {
         // Check if the font matches any of the families
         let font_family_name = font_system.database.family_name(&attributes.family);
-        let face_contains_family = if let Some(face) = font_system.database.face(font_match_key.id)
-        {
-            face.families
-                .iter()
-                .any(|(name, _)| name == font_family_name)
+        let face_contains_family = if let Some(face) = font_system.database.face(font_match_key.id) {
+            face.families.iter().any(|(name, _)| name == font_family_name)
         } else {
             false
         };
@@ -349,10 +345,7 @@ impl ShapedSpan {
         for (linebreak_end_index, _) in unicode_linebreak::linebreaks(text_span) {
             let mut linebreak_start_index = linebreak_end_index;
 
-            for (character_index, character) in text_span[start_word..linebreak_end_index]
-                .char_indices()
-                .rev()
-            {
+            for (character_index, character) in text_span[start_word..linebreak_end_index].char_indices().rev() {
                 // TODO(ghovax): Not all whitespace characters are linebreakable, e.g. 00A0 (No-break space)
                 // https://www.unicode.org/reports/tr14/#GL
                 // https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
@@ -378,18 +371,14 @@ impl ShapedSpan {
             if linebreak_start_index < linebreak_end_index {
                 let is_blank = true;
 
-                for (character_index, character) in
-                    text_span[linebreak_start_index..linebreak_end_index].char_indices()
+                for (character_index, character) in text_span[linebreak_start_index..linebreak_end_index].char_indices()
                 {
                     shaped_words.push(ShapedWord::new(
                         font_system,
                         text,
                         attributes_list,
                         (span_range.start + linebreak_start_index + character_index)
-                            ..(span_range.start
-                                + linebreak_start_index
-                                + character_index
-                                + character.len_utf8()),
+                            ..(span_range.start + linebreak_start_index + character_index + character.len_utf8()),
                         level,
                         is_blank,
                     ));
@@ -411,10 +400,7 @@ impl ShapedSpan {
             shaped_words.reverse();
         }
 
-        ShapedSpan {
-            level,
-            shaped_words,
-        }
+        ShapedSpan { level, shaped_words }
     }
 }
 
@@ -426,23 +412,14 @@ pub struct ShapedLine {
 }
 
 impl ShapedLine {
-    pub fn new(
-        font_system: &mut FontSystem,
-        text: &str,
-        attributes_list: &AttributesList,
-    ) -> Option<Self> {
+    pub fn new(font_system: &mut FontSystem, text: &str, attributes_list: &AttributesList) -> Option<Self> {
         let mut shaped_spans = Vec::new();
 
         let bidirectional_info = unicode_bidi::BidiInfo::new(text, None);
         let is_right_to_left = if bidirectional_info.paragraphs.is_empty() {
             false
         } else {
-            bidirectional_info
-                .paragraphs
-                .first()
-                .unwrap()
-                .level
-                .is_rtl()
+            bidirectional_info.paragraphs.first().unwrap().level.is_rtl()
         };
 
         for paragraph_info in bidirectional_info.paragraphs.iter() {
@@ -452,10 +429,7 @@ impl ShapedLine {
             }
 
             let line_range = paragraph_info.range.clone();
-            let levels = Self::adjust_levels(&unicode_bidi::Paragraph::new(
-                &bidirectional_info,
-                paragraph_info,
-            ));
+            let levels = Self::adjust_levels(&unicode_bidi::Paragraph::new(&bidirectional_info, paragraph_info));
 
             // Find consecutive level word_texts. We use this to create `ShapedSpan`s.
             // Each span is a set of characters with equal levels.
@@ -463,12 +437,7 @@ impl ShapedLine {
             let mut word_text_level = levels.get(start_index)?;
             shaped_spans.reserve(line_range.end - start_index + 1);
 
-            for (index, level) in levels
-                .iter()
-                .enumerate()
-                .take(line_range.end)
-                .skip(start_index + 1)
-            {
+            for (index, level) in levels.iter().enumerate().take(line_range.end).skip(start_index + 1) {
                 if level != word_text_level {
                     // End of the previous word_text, start of a new one.
                     shaped_spans.push(ShapedSpan::new(
@@ -581,9 +550,8 @@ impl ShapedLine {
                     let height = glyph.height * font_size;
 
                     // Push glyph to layout
-                    layouted_glyphs.push(glyph.as_layouted_glyph(
-                        font_size, x_cursor, y_cursor, x_advance, height, span.level,
-                    ));
+                    layouted_glyphs
+                        .push(glyph.as_layouted_glyph(font_size, x_cursor, y_cursor, x_advance, height, span.level));
 
                     if !self.is_right_to_left {
                         x_cursor += x_advance;

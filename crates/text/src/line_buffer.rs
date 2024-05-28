@@ -13,11 +13,8 @@ pub struct LineBuffer {
 }
 
 impl LineBuffer {
-    pub fn from_rich_text(
-        content_spans: &[(String, Attributes)],
-        default_attributes: Attributes,
-    ) -> Self {
-        let (reconstructed_string, spans_data): (String, Vec<_>) = {
+    pub fn from_rich_text(content_spans: &[(String, Vec<String>)], default_attributes: Attributes) -> Self {
+        let (reconstructed_string, mut spans_data): (String, Vec<_>) = {
             let mut end_index = 0;
 
             content_spans
@@ -26,18 +23,28 @@ impl LineBuffer {
                     let start_index = end_index;
                     end_index += span_text.len();
 
-                    (span_text.as_str(), (start_index..end_index, *attributes))
+                    (span_text.as_str(), (start_index..end_index, attributes.clone()))
                 })
                 .unzip()
         };
 
         let mut attributes_list = AttributesList::new(default_attributes);
 
-        for (span_range, span_attributes) in spans_data.iter() {
+        for (span_range, span_attributes) in spans_data.iter_mut() {
             let span_text = reconstructed_string.get(span_range.clone()).unwrap();
 
-            if *span_attributes != attributes_list.default_attributes {
-                attributes_list.add_span(span_range.clone(), *span_attributes)
+            let mut current_span_attributes = default_attributes.clone();
+            for attribute in span_attributes.iter() {
+                current_span_attributes = match attribute.as_str() {
+                    "bold" => current_span_attributes.bold(),
+                    "italic" => current_span_attributes.italic(),
+                    _ => {
+                        panic!("unknown attribute encountered during the parsing: {:?}", attribute);
+                    }
+                }
+            }
+            if current_span_attributes != attributes_list.default_attributes {
+                attributes_list.add_span(span_range.clone(), current_span_attributes)
             }
         }
 
@@ -59,20 +66,16 @@ impl LineBuffer {
     }
 
     pub fn as_shaped_line(&mut self, font_system: &mut FontSystem) -> &ShapedLine {
-        let shaped_line = self.shaped_line.get_or_insert_with(|| {
-            ShapedLine::new(font_system, &self.text, &self.attributes_list).unwrap()
-        });
+        let shaped_line = self
+            .shaped_line
+            .get_or_insert_with(|| ShapedLine::new(font_system, &self.text, &self.attributes_list).unwrap());
 
         // Invalidate the layout of the line
         self.layouted_line = None;
         shaped_line
     }
 
-    pub fn as_mut_layouted_line(
-        &mut self,
-        font_system: &mut FontSystem,
-        font_size: f32,
-    ) -> &mut LayoutedLine {
+    pub fn as_mut_layouted_line(&mut self, font_system: &mut FontSystem, font_size: f32) -> &mut LayoutedLine {
         if self.layouted_line.is_none() {
             let shaped_line = self.as_shaped_line(font_system);
             self.layouted_line = Some(shaped_line.layout(font_size));

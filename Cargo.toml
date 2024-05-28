@@ -22,6 +22,7 @@ unicode-segmentation = "1.11.0"
 # winit = "0.29"
 gtk4 = { version = "0.8.2", features = ["v4_8"] }
 skia-safe = "0.73.0"
+serde_json = "1.0.117"
 
 text = { path = "crates/text" }       # Adapted from `cosmic_text`
 convert = { path = "crates/convert" }
