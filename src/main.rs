@@ -104,12 +104,26 @@ fn main() -> glib::ExitCode {
 
     application.connect_command_line(|app, cmd_line| {
         let args = cmd_line.arguments();
-        let file_path = if args.len() > 1 {
-            // Convert OsString to PathBuf, skip first arg (program name)
-            Some(std::path::PathBuf::from(&args[1]))
-        } else {
-            None
-        };
+        let mut file_path = None;
+
+        // Parse arguments looking for --document <path>
+        let mut i = 1; // Skip program name
+        while i < args.len() {
+            let arg = args[i].to_str().unwrap_or("");
+
+            if arg == "--document" {
+                // Check if there's a next argument for the path
+                if i + 1 < args.len() {
+                    file_path = Some(std::path::PathBuf::from(&args[i + 1]));
+                    i += 2; // Skip both --document and the path
+                } else {
+                    log::error!("--document flag requires a file path argument");
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
 
         run_application_logic(app, file_path);
         0 // Return 0 for success
@@ -693,7 +707,9 @@ fn run_application_logic(application: &gtk4::Application, initial_file_path: Opt
                                         }
                                     }
 
-                                    if let (Some(cursor_span_index), Some(index_in_span)) = (cursor_span_index, index_in_span) {
+                                    if let (Some(cursor_span_index), Some(index_in_span)) =
+                                        (cursor_span_index, index_in_span)
+                                    {
                                         let span_text = &mut spans.get_mut(cursor_span_index).unwrap().0;
                                         span_text.remove(index_in_span);
                                         editing_cursor.glyph_index_in_line -= 1;
@@ -727,7 +743,9 @@ fn run_application_logic(application: &gtk4::Application, initial_file_path: Opt
                                         }
                                     }
 
-                                    if let (Some(cursor_span_index), Some(index_in_span)) = (cursor_span_index, index_in_span) {
+                                    if let (Some(cursor_span_index), Some(index_in_span)) =
+                                        (cursor_span_index, index_in_span)
+                                    {
                                         let span_text = &mut spans.get_mut(cursor_span_index).unwrap().0;
                                         span_text.remove(index_in_span);
                                     }
@@ -782,9 +800,8 @@ fn run_application_logic(application: &gtk4::Application, initial_file_path: Opt
                                 }
 
                                 let cursor_span_index = cursor_span_index.unwrap_or(0);
-                                let index_in_span = index_in_span.unwrap_or_else(|| {
-                                    spans.get(cursor_span_index).map(|s| s.0.len()).unwrap_or(0)
-                                });
+                                let index_in_span = index_in_span
+                                    .unwrap_or_else(|| spans.get(cursor_span_index).map(|s| s.0.len()).unwrap_or(0));
 
                                 // Split the spans at cursor position
                                 let mut new_line_spans = Vec::new();
@@ -816,7 +833,7 @@ fn run_application_logic(application: &gtk4::Application, initial_file_path: Opt
                                     DocumentElement::Line {
                                         anchor_point: new_anchor_point,
                                         spans: new_line_spans,
-                                    }
+                                    },
                                 ));
 
                                 // Update cursor
@@ -836,7 +853,9 @@ fn run_application_logic(application: &gtk4::Application, initial_file_path: Opt
                         // Update anchor points of all lines below the inserted line
                         let line_spacing = font_size * 1.5;
                         for i in (insert_index + 1)..document.as_ref().unwrap().elements.len() {
-                            if let Some(DocumentElement::Line { anchor_point, .. }) = document.as_mut().unwrap().elements.get_mut(i) {
+                            if let Some(DocumentElement::Line { anchor_point, .. }) =
+                                document.as_mut().unwrap().elements.get_mut(i)
+                            {
                                 anchor_point.1 += line_spacing;
                             }
                         }
