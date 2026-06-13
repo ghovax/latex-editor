@@ -1,4 +1,4 @@
-# text-editor
+# latex-editor
 
 A TeX-inspired scientific document editor built with GTK4 and Skia.
 
@@ -22,7 +22,7 @@ cargo build --release
 Launch the editor and open a document:
 
 ```bash
-./text-editor --document path/to/document.json
+./latex-editor --document path/to/document.json
 ```
 
 Or launch without a document and use the toolbar button to open one.
